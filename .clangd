@@ -1,0 +1,10 @@
+Diagnostics:
+  MissingIncludes: Strict
+  UnusedIncludes: Strict
+  ClangTidy:
+    Add: [misc-include-cleaner]
+    CheckOptions:
+      StrictMode: true
+
+CompileFlags:
+  Add: [-std=c++23, -Wall, -Wextra, -Wsign-conversion, -Wpedantic, -pedantic-errors, -Winvalid-pch]
