@@ -7,4 +7,4 @@ Diagnostics:
       StrictMode: true
 
 CompileFlags:
-  Add: [-std=c++23, -Wall, -Wextra, -Wsign-conversion, -Wpedantic, -pedantic-errors, -Winvalid-pch]
+  Add: [-std=c++17, -Wall, -Wextra, -Wsign-conversion, -Wpedantic, -pedantic-errors, -Winvalid-pch]
