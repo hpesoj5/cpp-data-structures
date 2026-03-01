@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <initializer_list>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 template <typename T>
 class MyVector
@@ -33,13 +34,21 @@ public:
     T& operator[](int index);
     const T& operator[](int index) const;
     // iterators soon
-    
+    T& at(size_t index);
+    const T& at(size_t index) const;
+    T& at(int index);
+    const T& at(int index) const;
+
     void reserve(size_t n);
     void resize(size_t n);
-    void push(const T& val);
-    void push(T&& val);
+    void push_back(const T& val);
+    void push_back(T&& val);
+
+    template <typename... Args>
+    void emplace_back(Args&&... args);
+
     T pop();
-    void clear() { m_size = m_arr; }
+    void clear();
 
     // const T* get() const { return m_arr; }
     void print() const;
@@ -53,39 +62,48 @@ private:
 
 template <typename T>
 MyVector<T>::MyVector()
-    : m_arr { new T[1] {} }
+    : m_arr { static_cast<T*>(::operator new(sizeof(T))) }
     , m_size { m_arr }
     , m_capacity { m_arr + 1 }
 {}
 
 template <typename T>
 MyVector<T>::MyVector(size_t n)
-    : m_arr { n == 0 ? new T[1] {} : new T[n] {} }
-    , m_size { m_arr + n }
-    , m_capacity { n == 0 ? m_arr + 1 : m_arr + n }
-{}
+    : m_arr { n == 0 ? static_cast<T*>(::operator new(sizeof(T))) : static_cast<T*>(::operator new(n * sizeof(T))) }
+    , m_size { m_arr }
+    , m_capacity { m_arr + (n == 0 ? 1 : n) }
+{
+    std::uninitialized_value_construct_n(m_arr, n);
+    m_size = m_arr + n;
+}
 
 template <typename T>
 MyVector<T>::MyVector(size_t n, const T& val)
-    : m_arr { n == 0 ? new T[1] {} : new T[n] {} }
-    , m_size { m_arr + n }
-    , m_capacity { n == 0 ? m_arr + 1 : m_arr + n }
+    : m_arr { n == 0 ? static_cast<T*>(::operator new(sizeof(T))) : static_cast<T*>(::operator new(n * sizeof(T))) }
+    , m_size { m_arr }
+    , m_capacity { m_arr + (n == 0 ? 1 : n) }
 {
-    std::fill_n(m_arr, n, val);
+    std::uninitialized_fill_n(m_arr, n, val);
+    m_size = m_arr + n;
 }
 
 template <typename T>
 MyVector<T>::MyVector(std::initializer_list<T> list)
-    : MyVector(list.size())
+    : m_arr { list.size() == 0 ? static_cast<T*>(::operator new(sizeof(T))) : static_cast<T*>(::operator new(list.size() * sizeof(T))) }
+    , m_size { m_arr }
+    , m_capacity { m_arr + (list.size() == 0 ? 1 : list.size()) }
 {
-    std::copy(list.begin(), list.end(), m_arr);
+    std::uninitialized_copy(list.begin(), list.end(), m_arr);
+    m_size = m_arr + list.size();
 }
 
 template <typename T>
 MyVector<T>::MyVector(const MyVector& other)
-    : MyVector(other.capacity())
+    : m_arr { static_cast<T*>(::operator new(other.capacity() * sizeof(T))) }
+    , m_size { m_arr }
+    , m_capacity { m_arr + other.capacity() }
 {
-    std::copy(other.m_arr, other.m_size, m_arr);
+    std::uninitialized_copy(other.m_arr, other.m_size, m_arr);
     m_size = m_arr + other.size();
 }
 
@@ -120,7 +138,8 @@ MyVector<T>& MyVector<T>::operator=(MyVector&& other) noexcept
     if (this == &other)
         return *this;
 
-    delete[] m_arr;
+    std::destroy(m_arr, m_size);
+    ::operator delete(m_arr);
     m_arr = other.m_arr;
     m_size = other.m_size;
     m_capacity = other.m_capacity;
@@ -135,7 +154,8 @@ MyVector<T>& MyVector<T>::operator=(MyVector&& other) noexcept
 template <typename T>
 MyVector<T>::~MyVector()
 {
-    delete[] m_arr;
+    std::destroy(m_arr, m_size);
+    ::operator delete(m_arr);
 }
 
 template <typename T>
@@ -177,18 +197,12 @@ const T& MyVector<T>::back() const
 template <typename T>
 T& MyVector<T>::operator[](size_t index)
 {
-    if (index >= this->size())
-        throw std::out_of_range("Attempting to access vector out of bounds");
-
     return m_arr[index];
 }
 
 template <typename T>
 const T& MyVector<T>::operator[](size_t index) const
 {
-    if (index >= this->size())
-        throw std::out_of_range("Attempting to access vector out of bounds");
-
     return m_arr[index];
 }
 
@@ -196,10 +210,7 @@ template <typename T>
 T& MyVector<T>::operator[](int index)
 {
     if (index >= 0)
-        return (*this)[static_cast<size_t>(index)];
-
-    if (index < -static_cast<int>(this->size()))
-        throw std::out_of_range("Attempting to access vector out of bounds");
+        return m_arr[index];
 
     return *(m_size + index);
 }
@@ -208,7 +219,46 @@ template <typename T>
 const T& MyVector<T>::operator[](int index) const
 {
     if (index >= 0)
-        return (*this)[static_cast<size_t>(index)];
+        return m_arr[index];
+
+    return *(m_size + index);
+}
+
+template <typename T>
+T& MyVector<T>::at(size_t index)
+{
+    if (index >= this->size())
+        throw std::out_of_range("Attempting to access vector out of bounds");
+
+    return m_arr[index];
+}
+
+template <typename T>
+const T& MyVector<T>::at(size_t index) const
+{
+    if (index >= this->size())
+        throw std::out_of_range("Attempting to access vector out of bounds");
+
+    return m_arr[index];
+}
+
+template <typename T>
+T& MyVector<T>::at(int index)
+{
+    if (index >= 0)
+        return this->at(static_cast<size_t>(index));
+
+    if (index < -static_cast<int>(this->size()))
+        throw std::out_of_range("Attempting to access vector out of bounds");
+
+    return *(m_size + index);
+}
+
+template <typename T>
+const T& MyVector<T>::at(int index) const
+{
+    if (index >= 0)
+        return this->at(static_cast<size_t>(index));
 
     if (index < -static_cast<int>(this->size()))
         throw std::out_of_range("Attempting to access vector out of bounds");
@@ -222,15 +272,17 @@ void MyVector<T>::reserve(size_t n)
     if (n <= this->capacity())
         return;
 
-    auto new_arr { n == 0 ? new T[1] {} : new T[n] {} };
+    auto new_arr { n == 0 ? static_cast<T*>(::operator new(sizeof(T))) : static_cast<T*>(::operator new(n * sizeof(T))) };
+    auto old_size { this->size() };
 
-    auto oldSize { this->size() };
-    std::copy(m_arr, m_size, new_arr);
+    std::uninitialized_move(m_arr, m_size, new_arr);
 
-    delete[] m_arr;
+    std::destroy(m_arr, m_size);
+    ::operator delete(m_arr);
+
     m_arr = new_arr;
-    m_size = m_arr + oldSize;
-    m_capacity = (n == 0 ? new_arr + 1 : new_arr + n);
+    m_size = m_arr + old_size;
+    m_capacity = m_arr + (n == 0 ? 1 : n);
 }
 
 template <typename T>
@@ -238,44 +290,58 @@ void MyVector<T>::resize(size_t n)
 {
     if (n <= this->capacity())
     {
+        if (n > this->size())
+            std::uninitialized_value_construct(m_size, m_arr + n);
+        else
+            std::destroy(m_arr + n, m_size);
+
         m_size = m_arr + n;
         return;
     }
 
-    auto new_arr { n == 0 ? new T[1] {} : new T[n] {} };
+    this->reserve(n);
 
-    std::copy(m_arr, m_size, new_arr);
-    
-    delete[] m_arr;
-    m_arr = new_arr;
+    std::uninitialized_value_construct(m_size, m_arr + n);
     m_size = m_arr + n;
-    m_capacity = (n == 0 ? m_arr + 1 : m_arr + n);
 }
 
 template <typename T>
-void MyVector<T>::push(const T& val)
+void MyVector<T>::push_back(const T& val)
 {
     if (m_size == m_capacity)
     {
-        auto oldSize { this->size() };
-        this->resize(oldSize == 0 ? 1 : oldSize * 2);
-        m_size = m_arr + oldSize;
+        auto old_size { this->size() };
+        this->reserve(old_size == 0 ? 1 : old_size * 2);
     }
 
-    *m_size = val;
+    new (m_size) T(val);
     ++m_size;
 }
 
 template <typename T>
-void MyVector<T>::push(T&& val)
+void MyVector<T>::push_back(T&& val)
 {
     if (m_size == m_capacity)
     {
-        auto oldSize { this->size() };
-        this->resize(oldSize == 0 ? 1 : oldSize * 2); // this might throw
-        m_size = m_arr + oldSize; }
+        auto old_size { this->size() };
+        this->reserve(old_size == 0 ? 1 : old_size * 2); // this might throw
+    }
 
-    *m_size = std::move_if_noexcept(val);
+    new (m_size) T(std::move(val));
+    ++m_size;
+}
+
+template <typename T>
+template <typename... Args>
+void MyVector<T>::emplace_back(Args&&... args)
+{
+    if (m_size == m_capacity)
+    {
+        auto old_size { this->size() };
+        this->reserve(old_size == 0 ? 1 : old_size * 2);
+    }
+
+    new (m_size) T(std::forward<Args>(args)...);
     ++m_size;
 }
 
@@ -285,7 +351,18 @@ T MyVector<T>::pop()
     if (this->size() == 0)
         throw std::length_error("Vector must be non-empty");
 
-    return *(--m_size);
+    T tmp { std::move(*(m_size - 1)) };
+    std::destroy_at(m_size - 1);
+    --m_size;
+
+    return tmp;
+}
+
+template <typename T>
+void MyVector<T>::clear()
+{
+    std::destroy(m_arr, m_size);
+    m_size = m_arr;
 }
 
 template <typename T>
